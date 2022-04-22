@@ -1,0 +1,195 @@
+# 读取数据
+data1 = pd.read_csv(open('E:/pychram_projects/Graduation Project/51job招聘信息_多线程.cvs'), header=None
+                    , names=["职位名称", "薪资", "公司名称", "公司信息", "基本要求", "福利信息", "职位要求"])
+data2 = pd.read_csv(open('E:/pychram_projects/Graduation Project/51job招聘信息_多线程100.cvs'), header=None
+                    , names=["职位名称", "薪资", "公司名称", "公司信息", "基本要求", "福利信息", "职位要求"])
+# 两个CSV文件合并  7035,7
+data = pd.concat([data1, data2], axis=0)
+
+# 重置数据结构
+# 基本要求分为工作地点、工作经验、学历、招聘人数、招聘信息发布时间
+df1 = data['基本要求'].str.split('|', expand=True)
+data['工作地点'] = df1[0]
+data['经验'] = df1[1]
+data['学历'] = df1[2]
+data['招聘人数'] = df1[3]
+data['发布时间'] = df1[4]
+data['额外要求'] = df1[5]+df1[6]
+
+# 公司信息分为公司类型、公司规模、公司的营业方向
+df2 = data['公司信息'].str.split('|', expand=True)
+data['公司类型'] = df2[0]
+data['公司规模'] = df2[1]
+data['公司营业方向'] = df2[2]
+
+# 工作地点如上海-浦东区，提取上海
+df3 = data['工作地点'].str.split('-', expand=True)
+data['工作地点'] = df3[0]
+
+# 去除空格
+data = data.applymap((lambda x: "".join(x.split()) if type(x) is str else x))
+
+# 取需要的列
+data_new = data.loc[:, ['职位名称', '薪资', '公司名称', '福利信息', '工作地点', '经验',
+                        '学历', '额外要求', '公司类型', '公司规模', '公司营业方向', '职位要求']]
+
+# 查看重复行有多少条  2069
+print(data_new.duplicated().sum())
+# 去除重复行：keep='first'是保留第一条重复的记录
+data_new.drop_duplicates(keep='first', inplace=True)
+# 重置索引（删除了重复记录需重置索引）    4966,12
+data_new.index = range(data_new.shape[0])
+
+# 经验列统一类别
+jy = data_new['经验'].str.strip('经验年').str.replace('不限', '应届毕业生')
+data_new = data_new.drop('经验', axis=1).join(jy)
+
+# 查看某列中值
+data_new['经验'].unique()
+# 统计某列中值的频数
+data_new.groupby(['经验']).size()
+
+# # 删除经验列为空的行
+data_new = data_new.dropna(axis=0, subset=['经验'])
+# 通过~取反，选取不包含数字1的行
+data_new = data_new[~data_new['经验'].isin(['招1人', '招2人', '招3人', '招5人', '招若干人', '本科', '大专', '在校生/应届生'])]    #(3876,12)
+data_new = data_new[~data_new['学历'].isin(['招1人', '招2人', '招3人', '招4人', '招5人', '招8人', '招6人', '招10人', '招20人', '招若干人'])]   #(3815,12)
+data_new = data_new[data_new['公司规模'].isin(['少于50人', '50-150人', '150-500人', '500-1000人', '1000-5000人', '5000-10000人', '10000人以上'])]   #（3678，12）
+
+# # 薪资列处理  1e2:100  1e3:1000  1e4:10000
+data_new['单位'] = data_new['薪资'].astype(str).apply(lambda x: x[-3:])
+data_new['工资'] = data_new['薪资'].astype(str).apply(lambda x: x[:-3])
+# 先查看单位有哪些，去掉那些不对的
+data_new['单位'].unique()
+data_new = data_new[~data_new['单位'].isin(['下/月', '上/月', '元/天', 'nan'])]    #(3649,14)
+# # 删除工资列为空的行
+data_new = data_new.dropna(axis=0, subset=['单位'])
+
+xz = data_new['工资'].str.split('-', expand=True)
+# # fillna(0) 用0填充缺失数据
+# data_new['min'] = xz[0].fillna(0)
+data_new['salary_min'] = xz[0]
+data_new['salary_max'] = xz[1]
+# 根据“单位”列来对工资进行处理，统一变成“元/月”
+data_new.loc[data_new.单位 == '千/月', 'salary_min'] = data_new['salary_min'].astype(float)
+data_new.loc[data_new.单位 == '千/月', 'salary_max'] = data_new['salary_max'].astype(float)
+data_new.loc[data_new.单位 == '万/月', 'salary_min'] = data_new['salary_min'].astype(float)*1e1
+data_new.loc[data_new.单位 == '万/月', 'salary_max'] = data_new['salary_max'].astype(float)*1e1
+data_new.loc[data_new.单位 == '万/年', 'salary_min'] = data_new['salary_min'].astype(float)*1e1/12
+data_new.loc[data_new.单位 == '万/年', 'salary_max'] = data_new['salary_max'].astype(float)*1e1/12
+data_new.index = range(data_new.shape[0])   #(3649,16)
+
+# 保存为新文件,index默认为True，会默认在保存的时候多出index一列
+data_new.to_csv('E:/pychram_projects/Graduation Project/newdata_51job.cvs', index=False, encoding='utf-8')
+
+#####################################################################################################################################################################
+# 读取数据
+data_new = pd.read_csv(open('E:/pychram_projects/Graduation Project/newdata_51job.cvs', 'rb'))
+
+# 对"职位名称"和"职位要求"的处理
+data_new['职位名称_new'] = data_new['职位名称'].astype(str)
+data_new['职位名称_new'] = data_new.职位名称.map(lambda x: str(x))
+data_new['职位名称_new'] = data_new['职位名称_new'].apply(lambda x: re.sub("[\(（《].*[\》） )]", "", x))
+data_new['职位名称_new'] = data_new['职位名称_new'].apply(lambda x: re.sub("高级|中级|初级|资深|[1-9.、]", "", x))
+data_new['职位要求_new'] = data_new['职位要求'].apply(lambda x: re.sub("职能类别.*", "", x))
+data_new['职能类别'] = data_new['职位要求'].apply(lambda x: re.sub(".*职能类别：|关键字.*|微信分享", "", x))
+data_new['职位关键字'] = data_new['职位要求'].apply(lambda x: re.sub(".*关键字：", "", x))
+data_new['公司类型'] = data_new['公司类型'].apply(lambda x: re.sub("[\(（].*[\） )]", "", x))
+# 把英文小写全转为大写
+data_new['职位要求_new'] = data_new['职位要求_new'].str.upper()
+data_new['职位名称_new'] = data_new['职位名称_new'].str.upper()
+# 提取职位要求里的关键词
+# （1）分词
+# 基于TF-IDF算法进行关键词抽取
+key_words = data_new['职位要求_new'].apply(lambda x: jieba.analyse.extract_tags(x))  # 分词更为精确，每个分词只出现一次
+key_words1 = data_new['职位要求_new'].apply(lambda x: jieba.lcut(x))  # 直接文本分词，分词会有重复
+
+# （2）去除停用词
+stopwords = [line.strip() for line in open('stopword.txt', 'r').readlines()]
+userdict = [line.strip() for line in open('userdict.txt', 'r').readlines()]
+stopwords = userdict + stopwords
+
+data_after_stop = key_words.apply(lambda x: [z for z in x if z not in stopwords])
+data_after_stop1 = key_words1.apply(lambda x: [z for z in x if z not in stopwords])
+# d1是把执行分词后列表转回为文本类型
+d1 = data_after_stop1.apply(lambda x: ','.join(x))
+data_new['提取关键词后'] = data_after_stop.apply(lambda x: x[0:20])
+
+# （3）关键词提取
+key_words_t = {}
+for i in data_after_stop:
+    for j in i:
+        if j not in key_words_t.keys():
+            key_words_t[j] = 1
+        else:
+            key_words_t[j] += 1
+d0 = dict((k, v) for k, v in key_words_t.items() if v >= 50)
+print(sorted(d0.items(), key=lambda kv: (kv[1], kv[0])))
+print(sorted(key_words_t.items(), key=lambda kv: (kv[1], kv[0])))
+# new_words是分词集（取jieba.analyse.extract_tags分割的词，提取前XX个分词组成分词集）
+new_words = list(d0.keys())
+# 根据词在每个文本出现的频次转为权值（每个文本的分词对比new_words里的分词）
+txt_vsm = []
+for d_a_s in d1:
+    temp_vector = []
+    for new_word in new_words:
+        temp_vector.append(d_a_s.count(new_word)*1.0)
+    txt_vsm.append(temp_vector)
+txt_matrix = np.array(txt_vsm)  # 放入到numpy的array方便后面的计算
+
+# 单词出现次数转为权值
+column_sum = [float(len(np.nonzero(txt_matrix[:,i])[0])) for i in range(txt_matrix.shape[1])]
+column_sum = np.array(column_sum)
+column_sum = txt_matrix.shape[0] / column_sum
+idf = np.log(column_sum)
+idf = np.diag(idf)
+# 请仔细想想，根绝IDF的定义，计算词的IDF并不依赖于某个文档，所以我们提前计算好。
+# 注意一下计算都是矩阵运算，不是单个变量的运算。
+for doc_v in txt_matrix:
+    if doc_v.sum() == 0:
+        doc_v = doc_v / 1
+    else:
+        doc_v = doc_v / (doc_v.sum())
+    tfidf = np.dot(txt_matrix,idf)
+
+# t-sne降维
+tsne = TSNE(n_components=2)
+tsne1 = tsne.fit_transform(tfidf)  # 进行数据降维,并返回结果
+
+# 开始聚类
+km = KMeans(n_clusters=4)
+km.fit(tsne1)
+# km.fit(tfidf)
+# km.fit(txt_matrix)
+clusters = km.labels_.tolist()
+r1 = pd.Series(km.labels_).value_counts()  # 统计各个类别的数目
+r2 = pd.DataFrame(km.cluster_centers_)  # 找出聚类中心
+r2.columns = new_words  # 列名重命名
+r3 = pd.concat([r2, r1], axis=1)  # 横向连接（0是纵向），得到聚类中心对应的类别下的数目
+r4 = pd.concat([data_new, pd.Series(km.labels_, index=data_new.index)], axis=1)  # 详细输出每个样本对应的类别
+r4.columns = list(data_new.columns) + [u'聚类类别']  # 重命名表头
+
+# 手肘法选取最优K值，其核心指标是SSE(误差平方和)
+# SSE = []  # 存放每次结果的误差平方和
+# for k in range(1,15):
+#     estimator = KMeans(n_clusters=k)  # 构造聚类器
+#     estimator.fit(txt_matrix)
+#     SSE.append(estimator.inertia_)
+# X = range(1,15)
+# plt.xlabel('k')
+# plt.ylabel('SSE')
+# plt.plot(X,SSE,'o-')
+# plt.show()
+# 
+# # 轮廓系数法选最优K值
+# Scores = []  # 存放轮廓系数
+# for k in range(2,15):
+#     estimator = KMeans(n_clusters=k)  # 构造聚类器
+#     estimator.fit(txt_matrix)
+#     Scores.append(silhouette_score(txt_matrix,estimator.labels_,metric='euclidean'))
+# X = range(2,15)
+# plt.xlabel('k')
+# plt.ylabel('轮廓系数')
+# plt.plot(X,Scores,'o-')
+# plt.show()
+
