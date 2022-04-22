@@ -1,0 +1,156 @@
+# -*- codeing = utf-8 -*-
+# @Time : 2021/12/17 12:56
+# @Author : 仪仪子
+# @File : Spider.py
+# @Software : PyCharm
+
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.options import Options
+import time
+import datetime
+import pandas as pd
+
+# # 配置无头浏览器参数
+# opt = Options()
+# opt.add_argument("--headless")  # 无头
+# opt.add_argument("--disbale_gpu")  # 不可用显卡（不显示）
+# driver = webdriver.Chrome(options=opt)  # 把参数配置到浏览器中
+
+# 设置搜索关键词
+keySearchWord = {
+    1: "网络安全",
+    # 2: "web安全",
+}
+
+driver = webdriver.Chrome()
+
+# 第一步，进入前程无忧首页，通过关键词搜索职位信息
+def searchKeyWord(driver, keySearchWord):
+    url = 'https://search.51job.com/'
+    driver.get(url)
+    print('首页打开成功')
+    # time.sleep(20)
+    for keyWord in keySearchWord.values():
+        try:
+            time.sleep(10)
+            # 定位搜索框
+            inputTEXT = driver.find_element_by_xpath('//*[@id="keywordInput"]')
+        except Exception as e:
+            print("搜索框还没有加载好")
+        else:
+            inputTEXT.clear()
+            # 向搜索框输入关键字，并且回车
+            inputTEXT.send_keys(keyWord, Keys.ENTER)
+            time.sleep(10)
+            # 关键字搜索进去查询到的范围不是全国的，所以点击 工作地点，把范围改成全国的
+            driver.find_element_by_xpath('//*[@class="allcity"]').click()
+            aa = driver.find_elements_by_css_selector('#popop > div > div.panel_selt > div.con > div.de.d3 > div > table > tbody:nth-child(1) > tr > td > em[class="on"]')
+            for a in aa:
+                a.click()
+            driver.find_element_by_xpath('//*[@id="popop"]/div/div[3]/span').click()
+            time.sleep(10)
+            print('{}:成功打开这个关键字的搜索页，开始搜索'.format(keyWord))
+            getPage(driver)
+
+# 第二步，要知道总共有多少页面，进入二级页面，获取信息
+def getData(driver):
+    # # 通过页面中有多少个职位名称知道一页有多少个招聘信息列表
+    # zwmc_list = driver.find_elements_by_xpath('/html/body/div[2]/div[3]/div/div[2]/div[4]/div[1]/div/a/p/span[@class="jname at"]')
+    # print("当页共有{}条招聘信息".format(len(zwmc_list)))
+
+    # 获取到的招聘信息加入到这个空列表里
+    datas = []
+    # 进入每一个二级页面获取信息
+    for i in range(50):
+        zwmc_list = driver.find_elements_by_xpath('/html/body/div[2]/div[3]/div/div[2]/div[4]/div[1]/div/a/p/span[@class="jname at"]')
+        # print(zwmc_list[i])
+        #
+        time.sleep(5)
+        # 点击职位名称进入二级页面
+        zwmc = zwmc_list[i]
+        driver.execute_script("arguments[0].click();", zwmc)
+        print("成功进入二级页面")
+        time.sleep(5)
+
+        # selenium中 新窗口默认是不切换过来
+        # 切换窗口，-1指最后一个。进入到招聘详情页
+        driver.switch_to.window(driver.window_handles[-1])
+        print("准备开始获取二级页面信息")
+
+        # 在二级页面里提取信息
+        try:
+            job_name = driver.find_element_by_tag_name('h1').text
+            salary = driver.find_element_by_xpath('//div[@class="cn"]/strong').text
+            company = driver.find_element_by_xpath('//*[@class="cname"]/a').text
+            company_detail = driver.find_element_by_xpath('//*[@class="com_tag"]').text
+            company_detail = company_detail.replace('\n', '|')
+            msg_list = driver.find_element_by_xpath('//p[@class="msg ltype"]').text
+            fl_msg = driver.find_element_by_xpath('//div[@class="jtag"]/div').text
+            fl_msg = fl_msg.replace('\n', '|')
+            job_detail = driver.find_element_by_xpath('//*[@class="bmsg job_msg inbox"]').text
+            job_detail = job_detail.replace('\n', '')
+            data = [job_name, salary, company, company_detail, msg_list, fl_msg, job_detail]
+            # 将data追加入datas列表里
+            datas.append(data)
+            print(data)
+            # 关闭子窗口
+            driver.close()
+            # 回到原来的窗口中
+            driver.switch_to.window(driver.window_handles[0])
+            time.sleep(3)
+        except Exception as e:
+            print("error:有错误，这条招聘信息就不获取啦~")
+            # 关闭子窗口
+            driver.close()
+            # 回到原来的窗口中
+            driver.switch_to.window(driver.window_handles[0])
+    return datas
+
+# 跳转到指定页面
+def getPage(driver):
+    # time.sleep(3)
+    # 全国范围一共有多少页
+    pages = driver.find_element_by_class_name('rt_page').text
+    pages = int(pages.split('/')[1].replace(' ', ''))
+    print('总共有{}页'.format(pages))
+
+    # range默认从0开始，前闭后开
+    for page in range(1, pages):
+        # 跳转到指定的页面
+        inputpage = driver.find_element_by_xpath('//*[@id="jump_page"]')
+        inputpage.clear()
+        inputpage.send_keys(page)
+        driver.find_element_by_xpath('//span[@class="og_but"]').click()
+        print('开始爬取第{}页'.format(page))
+        time.sleep(5)
+        getData(driver)
+        # 一页写入数据一次
+        saveData()
+        print('成功保存第{}页的数据'.format(page))
+
+# 第三步，保存数据
+def saveData():
+    datas = getData(driver)
+    # list是不能直接写入CSV文件的，所以要把它转成DataFrame这种表格型数据结构才可写入
+    test = pd.DataFrame(data=datas)
+    # 以追加的模式写入数据
+    test.to_csv('E:/pychram_projects/Graduation Project/51job招聘信息.cvs', encoding='gbk', mode='a', header=False)
+    print("写入成功")
+
+if __name__=="__main__":
+    starTime = datetime.datetime.now()
+    print(starTime)
+    searchKeyWord(driver, keySearchWord)
+    endTime = datetime.datetime.now()
+    print('开始时间：{}，结束时间：{}'.format(starTime, endTime))
+
+
+# import pandas as pd
+# path = 'E:\\pychram_projects\\Graduation Project\\51job招聘信息_01.cvs'
+# with open(path)as file:
+#     # 读取CSV文件，并设置表头
+#     text = pd.read_csv(file, header=None, names=["职位名称", "薪资", "公司名称", "公司信息", "基本要求", "福利信息", "职位要求"])
+#     # 循环写入CSV文件时，每循环一次索引也是循环写入（索引并不会自增写入），所以要重置索引
+#     text.index = range(len(text))
+#     print(text)
